@@ -88,3 +88,6 @@ class Finetune(object):
             if openai.FineTune.status(job_id) == "failed":
                 self.logger.error("Fine-tuning job failed")
                 raise Exception("Fine-tuning job failed")
+
+            self.logger.info("Fine-tuning job completed successfully")
+            return job_id
