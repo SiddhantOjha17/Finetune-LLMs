@@ -2,6 +2,7 @@ import os
 import openai
 import json
 import time
+
 from typing import List, Optional, Union
 from pathlib import Path
 import csv
@@ -12,7 +13,10 @@ from logging import Logger
 # openai.Model.list()
 
 
+
+
 class Finetune:
+
     def __init__(self, logger: Logger):
         self.logger = logger
 
@@ -134,7 +138,7 @@ class Finetune:
         suffix: Optional[str] = None,
     ):
         """
-        _summary_
+        Fine-tunes the specified model
 
         Args:
             training_file (str): The ID of an uploaded file that contains training data.
