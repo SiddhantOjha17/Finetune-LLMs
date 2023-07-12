@@ -1,0 +1,2 @@
+pip install autotrain-advanced
+autotrain llm --train --project_name output --model Salesforce/xgen-7b8k-base --data_path tatsu-lab/alpaca --use_peft --use_int4 --trainer sft --learning_rate 2e-4
