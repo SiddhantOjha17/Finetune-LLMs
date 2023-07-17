@@ -1,26 +1,18 @@
-import os
 import openai
 import json
 import time
-
-from typing import List, Optional, Union
-from pathlib import Path
+from typing import List, Optional
 import csv
 from logging import Logger
-
-# openai.organization = "YOUR_ORG_ID"
-# APIKEY
-# openai.Model.list()
-
-
+import logging
 
 
 class Finetune:
-
-    def __init__(self, logger: Logger):
+    def __init__(self, logger: Logger, openai_key :str ):
         self.logger = logger
+        openai.api_key=openai_key
 
-    def generate_jsonl_from_csv(self, csv_file: str, output_file: str) -> str:
+    def generate_jsonl_from_csv(self, train_csv_file: str, val_csv_file: str , train_output_file: str, val_output_file: str) -> str:
         """
         Creates a `.jsonl` file from a `.csv`
 
@@ -38,44 +30,30 @@ class Finetune:
         Usage:
         >>> generate_jsonl_from_csv('input.csv', 'output.jsonl')
         """
-        # generate_jsonl_from_csv('input.csv', 'output.jsonl')
-
-        if not csv_file.endswith(".csv"):
-            self.logger.error(
-                "args `csv_file` must be the **file** path to the .csv file"
-            )
-            raise Exception(
-                "args `csv_file` must be the **file** path to the .csv file"
-            )
-
-        if not output_file.endswith(".jsonl"):
-            self.logger.error(
-                "args `output_file` must be the **file** path to the .jsonl file"
-            )
-            raise Exception(
-                "args `output_file` must be the **file** path to the .jsonl file"
-            )
 
         prompt_completion_pairs = []
+        paths =[train_csv_file, val_csv_file]
+        output_files = [train_output_file, val_output_file]
+        for csv_file, output_file in zip(paths, output_files):
+            with open(csv_file, "r") as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    if len(row) >= 2:
+                        prompt = row[0]
+                        completion = row[1]
+                        prompt_completion_pairs.append((prompt, completion))
 
-        with open(csv_file, "r") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if len(row) >= 2:
-                    prompt = row[0]
-                    completion = row[1]
-                    prompt_completion_pairs.append((prompt, completion))
+            with open(output_file, "w") as f:
+                for pair in prompt_completion_pairs:
+                    json_obj = {"prompt": pair[0], "completion": pair[1]}
+                    json_str = json.dumps(json_obj)
+                    f.write(json_str + "\n")
+        return output_files
 
-        with open(output_file, "w") as f:
-            for pair in prompt_completion_pairs:
-                json_obj = {"prompt": pair[0], "completion": pair[1]}
-                json_str = json.dumps(json_obj)
-                f.write(json_str + "\n")
-        return output_file
 
-    def create_file(self, output_file: str) -> str:
+    def create_file(self, output_files) -> str:
         """
-        Uploads a file that contains document(s) to be used across endpoints/features
+        Uploads a file that contains document(s) to be used across endpoints/features purpose has to be fine-tune
 
         Args:
             output_file (str): Path to the `.jsonl` file
@@ -87,16 +65,19 @@ class Finetune:
         Returns:
             str: Path of the `.jsonl` file
         """
-        if not output_file.endswith(".jsonl"):
-            raise Exception(
-                "args `output_file` must be the **file** path to the .jsonl file"
-            )
-        try:
-            openai.File.create(file=open(output_file, "rb"), purpose="fine-tune")
-            return output_file
-        except Exception as e:
-            self.logger.error(f"Error creating file: {e}")
-            raise e
+        ids = []
+        for output_file in output_files:
+            if not output_file.endswith(".jsonl"):
+                raise Exception(
+                    "args `output_file` must be the **file** path to the .jsonl file"
+                )
+            try:
+                _ = openai.File.create(file=open(output_file, "rb"), purpose="fine-tune")
+                ids.append(_)
+            except Exception as e:
+                self.logger.error(f"Error creating file: {e}")
+                raise e
+        return output_files, ids
 
     # TODO: Specify use of the method
     # def model(
@@ -122,6 +103,7 @@ class Finetune:
     #         self.logger.error(f"Error creating model: {e}")
     #         raise e
 
+
     def finetune(
         self,
         training_file: str,
@@ -138,7 +120,7 @@ class Finetune:
         suffix: Optional[str] = None,
     ):
         """
-        Fine-tunes the specified model
+        _summary_
 
         Args:
             training_file (str): The ID of an uploaded file that contains training data.
@@ -161,7 +143,6 @@ class Finetune:
         Returns:
             _type_: _description_
         """
-        # openai.FineTune.create(training_file="file-XGinujblHPwGLSztz8cPS8XY")
 
         job_id = None
         try:
@@ -179,13 +160,13 @@ class Finetune:
                 classification_betas=classification_betas,
                 suffix=suffix,
             )
-            while openai.FineTune.status(job_id) == "pending":
-                time.sleep(1)
+            while openai.FineTune.retrieve(job_id.get('id')).get('status') == "pending":
+                time.sleep(60)
                 self.logger.info(
-                    "Fine-tuning job status: %s", openai.FineTune.status(job_id)
+                    "Fine-tuning job status: %s", openai.FineTune.retrieve(job_id.get('id')).get('status')
                 )
 
-            if openai.FineTune.status(job_id) == "failed":
+            if openai.FineTune.retrieve(job_id.get('id')).get('status') == "failed":
                 self.logger.error("Fine-tuning job failed")
                 raise Exception("Fine-tuning job failed")
 
@@ -195,3 +176,20 @@ class Finetune:
         except Exception as e:
             self.logger.error(f"Error creating fine-tune job: {e}")
             raise e
+
+
+if __name__ == "__main__":
+    from creds import OPENAI_KEY
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(logging.StreamHandler())
+    finetune = Finetune(logger, openai_key=OPENAI_KEY)
+    train_path, val_path = finetune.generate_jsonl_from_csv('sports_train.csv', 'sports_val.csv', 'sports_train.jsonl', 'sports_val.jsonl')
+    output_paths, ids = finetune.create_file(output_files=[train_path, val_path])
+    train_file, val_file = output_paths
+    train_id, val_id = ids
+    job_id = finetune.finetune(training_file=train_id.get('id'), n_epoch=1, validation_file=val_id.get('id'), suffix="sports", batch_size=4, compute_classification_metrics=True, classification_n_classes=2, classification_positive_class="hockey", classification_betas=[0.5, 1, 2], prompt_loss_weight=0.01, model_name="babbage", learning_rate_multiplier=1.0)
+    print("#"*5, end="\n\n")
+    print(type(openai.FineTune.retrieve(job_id.get('id'))))
+    print(openai.FineTune.retrieve(job_id.get('id')))
+
